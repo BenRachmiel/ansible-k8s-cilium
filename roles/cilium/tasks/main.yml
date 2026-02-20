@@ -1,0 +1,48 @@
+---
+- name: Install Cilium CLI
+  shell: |
+    CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+    curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-amd64.tar.gz
+    tar xzvf cilium-linux-amd64.tar.gz -C /usr/local/bin cilium
+    rm -f cilium-linux-amd64.tar.gz
+  args:
+    creates: /usr/local/bin/cilium
+
+- name: Add Cilium Helm repo
+  command: helm repo add cilium https://helm.cilium.io/
+  changed_when: false
+
+- name: Check if Cilium is already installed
+  command: helm status cilium -n kube-system
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cilium_helm_status
+  failed_when: false
+  changed_when: false
+
+- name: Install Cilium via Helm
+  command: >
+    helm install cilium cilium/cilium
+    --version {{ cilium_version }}
+    --namespace kube-system
+    --set kubeProxyReplacement=true
+    --set k8sServiceHost={{ kube_vip_ip }}
+    --set k8sServicePort=6443
+    --set gatewayAPI.enabled=true
+    --set hubble.enabled=true
+    --set hubble.relay.enabled=true
+    --set ipam.operator.clusterPoolIPv4PodCIDRList={{ pod_cidr }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: cilium_helm_status.rc != 0
+
+- name: Wait for node Ready
+  command: >
+    kubectl --kubeconfig /etc/kubernetes/admin.conf
+    get node {{ inventory_hostname }}
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  register: node_ready
+  retries: 30
+  delay: 10
+  until: node_ready.stdout == 'True'
+  changed_when: false

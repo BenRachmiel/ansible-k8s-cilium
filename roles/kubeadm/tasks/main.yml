@@ -1,0 +1,166 @@
+---
+- name: Replace iptables with iptables-nft
+  command: pacman -S --noconfirm --ask 4 iptables-nft
+  register: iptables_result
+  changed_when: "'reinstalling' not in iptables_result.stdout"
+  failed_when: iptables_result.rc != 0
+
+- name: Install Kubernetes packages
+  community.general.pacman:
+    name:
+      - kubeadm
+      - kubelet
+      - kubectl
+      - cni-plugins
+    state: present
+
+- name: Enable kubelet
+  systemd:
+    name: kubelet
+    enabled: true
+    daemon_reload: true
+
+# --- Pre-seed PKI from Vault (stable certs across rebuilds) ---
+
+- name: Get PKI from Vault
+  set_fact:
+    k8s_pki: "{{ lookup('community.hashi_vault.hashi_vault', 'secret/data/k8s/pki url=' ~ vault_addr ~ ' token=' ~ lookup('env', 'VAULT_TOKEN')) }}"
+  no_log: true
+  when: kubeadm_action | default('prereqs') == 'init'
+
+- name: Create PKI directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/kubernetes/pki
+    - /etc/kubernetes/pki/etcd
+  when: kubeadm_action | default('prereqs') == 'init'
+
+- name: Write PKI files from Vault
+  copy:
+    content: "{{ k8s_pki[item.key] }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { key: ca_crt, dest: /etc/kubernetes/pki/ca.crt, mode: "0644" }
+    - { key: ca_key, dest: /etc/kubernetes/pki/ca.key, mode: "0600" }
+    - { key: sa_pub, dest: /etc/kubernetes/pki/sa.pub, mode: "0644" }
+    - { key: sa_key, dest: /etc/kubernetes/pki/sa.key, mode: "0600" }
+    - { key: front_proxy_ca_crt, dest: /etc/kubernetes/pki/front-proxy-ca.crt, mode: "0644" }
+    - { key: front_proxy_ca_key, dest: /etc/kubernetes/pki/front-proxy-ca.key, mode: "0600" }
+    - { key: etcd_ca_crt, dest: /etc/kubernetes/pki/etcd/ca.crt, mode: "0644" }
+    - { key: etcd_ca_key, dest: /etc/kubernetes/pki/etcd/ca.key, mode: "0600" }
+  no_log: true
+  when: kubeadm_action | default('prereqs') == 'init'
+
+# --- Init tasks (only on cp_init node) ---
+
+- name: Check if cluster is already initialized
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_conf
+  when: kubeadm_action | default('prereqs') == 'init'
+
+- name: Initialize cluster with kubeadm
+  command: >
+    kubeadm init
+    --control-plane-endpoint={{ kube_vip_ip }}:6443
+    --upload-certs
+    --skip-phases=addon/kube-proxy
+    --pod-network-cidr={{ pod_cidr }}
+    --service-cidr={{ service_cidr }}
+  when:
+    - kubeadm_action | default('prereqs') == 'init'
+    - not kubeadm_conf.stat.exists
+  register: kubeadm_init
+
+- name: Save join command
+  shell: kubeadm token create --print-join-command
+  register: join_command
+  when: kubeadm_action | default('prereqs') == 'init'
+  changed_when: false
+
+- name: Save certificate key
+  shell: kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1
+  register: cert_key
+  when: kubeadm_action | default('prereqs') == 'init'
+  changed_when: false
+
+- name: Store join info as facts
+  set_fact:
+    kubeadm_join_command: "{{ join_command.stdout }}"
+    kubeadm_cert_key: "{{ cert_key.stdout }}"
+  when: kubeadm_action | default('prereqs') == 'init'
+
+- name: Fetch kubeconfig
+  slurp:
+    src: /etc/kubernetes/admin.conf
+  register: admin_kubeconfig
+  when: kubeadm_action | default('prereqs') == 'init'
+
+- name: Save kubeconfig locally
+  copy:
+    content: "{{ admin_kubeconfig.content | b64decode | regex_replace('server: https://[\\d.]+:', 'server: https://' ~ kube_vip_ip ~ ':') }}"
+    dest: "{{ playbook_dir }}/../kubeconfig.yml"
+  delegate_to: localhost
+  become: false
+  when: kubeadm_action | default('prereqs') == 'init'
+
+- name: Wait for API server
+  command: kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes
+  retries: 30
+  delay: 10
+  register: api_check
+  until: api_check.rc == 0
+  changed_when: false
+  when: kubeadm_action | default('prereqs') == 'init'
+
+# --- Join tasks (on cp_join nodes) ---
+
+- name: Check if already joined
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+  when: kubeadm_action | default('prereqs') == 'join'
+
+- name: Generate join command on init node
+  shell: kubeadm token create --print-join-command
+  delegate_to: "{{ groups['cp_init'][0] }}"
+  register: join_command
+  changed_when: false
+  when:
+    - kubeadm_action | default('prereqs') == 'join'
+    - not kubelet_conf.stat.exists
+
+- name: Upload certs on init node
+  shell: kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1
+  delegate_to: "{{ groups['cp_init'][0] }}"
+  register: cert_key
+  changed_when: false
+  when:
+    - kubeadm_action | default('prereqs') == 'join'
+    - not kubelet_conf.stat.exists
+
+- name: Join cluster as control plane
+  command: >
+    {{ join_command.stdout }}
+    --control-plane
+    --certificate-key {{ cert_key.stdout }}
+  when:
+    - kubeadm_action | default('prereqs') == 'join'
+    - not kubelet_conf.stat.exists
+
+- name: Wait for node Ready
+  command: >
+    kubectl --kubeconfig /etc/kubernetes/admin.conf get node {{ inventory_hostname }}
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  register: node_ready
+  retries: 30
+  delay: 10
+  until: node_ready.stdout == 'True'
+  changed_when: false
+  when: kubeadm_action | default('prereqs') == 'join'

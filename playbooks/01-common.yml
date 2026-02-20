@@ -1,0 +1,6 @@
+---
+- name: Base OS setup
+  hosts: k8s
+  become: true
+  roles:
+    - common

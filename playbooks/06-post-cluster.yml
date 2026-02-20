@@ -1,0 +1,43 @@
+---
+- name: Post-cluster validation
+  hosts: cp_init
+  become: true
+  tasks:
+    - name: Remove control-plane taint
+      command: >
+        kubectl --kubeconfig /etc/kubernetes/admin.conf
+        taint nodes --all node-role.kubernetes.io/control-plane-
+      register: taint_result
+      changed_when: "'untainted' in taint_result.stdout"
+      failed_when: false
+
+    - name: Wait for all nodes Ready
+      command: >
+        kubectl --kubeconfig /etc/kubernetes/admin.conf
+        get nodes -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}'
+      register: node_status
+      retries: 30
+      delay: 10
+      until: node_status.stdout_lines | reject('equalto', 'True') | list | length == 0
+      changed_when: false
+
+    - name: Display node status
+      command: kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
+      register: nodes_output
+      changed_when: false
+
+    - name: Show nodes
+      debug:
+        msg: "{{ nodes_output.stdout_lines }}"
+
+    - name: Validate Cilium status
+      command: cilium status --wait
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: cilium_status
+      changed_when: false
+      failed_when: false
+
+    - name: Show Cilium status
+      debug:
+        msg: "{{ cilium_status.stdout_lines }}"

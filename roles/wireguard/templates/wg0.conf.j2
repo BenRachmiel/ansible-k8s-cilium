@@ -1,0 +1,11 @@
+[Interface]
+PrivateKey = {{ wg_keys[wg_key_prefix ~ "_private"] }}
+Address = {{ wg_ip }}/24
+ListenPort = {{ wg_port }}
+PostUp = wg set wg0 peer {{ wg_keys["ec2_public"] }} endpoint {{ wg_endpoint }}:{{ wg_port }} || true
+
+[Peer]
+# EC2 tunnel
+PublicKey = {{ wg_keys["ec2_public"] }}
+AllowedIPs = 10.10.0.1/32
+PersistentKeepalive = 25

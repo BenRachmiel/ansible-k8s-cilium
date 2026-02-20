@@ -1,0 +1,10 @@
+---
+- name: Ensure manifests directory exists
+  file:
+    path: /etc/kubernetes/manifests
+    state: directory
+
+- name: Deploy kube-vip static pod manifest
+  template:
+    src: kube-vip.yaml.j2
+    dest: /etc/kubernetes/manifests/kube-vip.yaml

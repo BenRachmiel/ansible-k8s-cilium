@@ -1,0 +1,19 @@
+vault_addr: "https://vault.apps.okd.benrachmiel.org"
+# Set VAULT_TOKEN in environment before running
+
+# Kubernetes
+kube_vip_ip: "192.168.1.200"
+pod_cidr: "10.244.0.0/16"
+service_cidr: "10.96.0.0/12"
+
+# WireGuard
+wg_endpoint: "tunnel.k8s.benrachmiel.org"
+wg_port: 51820
+wg_subnet: "10.10.0.0/24"
+
+# Cilium
+cilium_version: "1.16.5"
+
+# kube-vip
+kube_vip_version: "v0.8.7"
+kube_vip_interface: "eth0"

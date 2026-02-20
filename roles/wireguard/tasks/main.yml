@@ -1,0 +1,61 @@
+---
+- name: Install wireguard-tools
+  community.general.pacman:
+    name: wireguard-tools
+    state: present
+
+- name: Get WireGuard keys from Vault
+  set_fact:
+    wg_keys: "{{ lookup('community.hashi_vault.hashi_vault', 'secret/data/wireguard/keys url=' ~ vault_addr ~ ' token=' ~ lookup('env', 'VAULT_TOKEN')) }}"
+  no_log: true
+
+- name: Determine key prefix from wg_ip
+  set_fact:
+    wg_key_prefix: "node{{ wg_ip.split('.')[-1] | int - 10 }}"
+
+- name: Template WireGuard config
+  template:
+    src: wg0.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart wireguard
+
+- name: Deploy DNS re-resolution timer
+  copy:
+    content: |
+      [Unit]
+      Description=Re-resolve WireGuard endpoint DNS
+
+      [Timer]
+      OnBootSec=1min
+      OnUnitActiveSec=5min
+
+      [Install]
+      WantedBy=timers.target
+    dest: /etc/systemd/system/wg-resolve.timer
+
+- name: Deploy DNS re-resolution service
+  copy:
+    content: |
+      [Unit]
+      Description=Re-resolve WireGuard endpoint DNS
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'wg set wg0 peer {{ wg_keys["ec2_public"] }} endpoint {{ wg_endpoint }}:{{ wg_port }}'
+    dest: /etc/systemd/system/wg-resolve.service
+
+- name: Enable and start WireGuard
+  systemd:
+    name: wg-quick@wg0
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable DNS re-resolution timer
+  systemd:
+    name: wg-resolve.timer
+    enabled: true
+    state: started

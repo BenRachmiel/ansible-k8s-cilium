@@ -1,0 +1,7 @@
+---
+- name: Kubernetes prerequisites
+  hosts: k8s
+  become: true
+  roles:
+    - containerd
+    - kubeadm

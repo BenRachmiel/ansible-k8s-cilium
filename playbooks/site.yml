@@ -1,0 +1,9 @@
+---
+# Master playbook — runs all phases in order
+- import_playbook: 01-common.yml
+- import_playbook: 02-wireguard.yml
+- import_playbook: 03-k8s-prereqs.yml
+- import_playbook: 04-init-cluster.yml
+- import_playbook: 05-join-nodes.yml
+- import_playbook: 06-post-cluster.yml
+- import_playbook: 07-bootstrap-flux.yml

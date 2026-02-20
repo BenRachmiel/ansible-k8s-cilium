@@ -1,0 +1,10 @@
+---
+- name: Join remaining control plane nodes
+  hosts: cp_join
+  serial: 1
+  become: true
+  roles:
+    - role: kube-vip
+      kube_vip_kubeconfig: /etc/kubernetes/admin.conf
+    - role: kubeadm
+      kubeadm_action: join

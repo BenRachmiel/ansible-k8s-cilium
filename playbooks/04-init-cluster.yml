@@ -1,0 +1,9 @@
+---
+- name: Initialize Kubernetes cluster
+  hosts: cp_init
+  become: true
+  roles:
+    - role: kube-vip
+    - role: kubeadm
+      kubeadm_action: init
+    - role: cilium
