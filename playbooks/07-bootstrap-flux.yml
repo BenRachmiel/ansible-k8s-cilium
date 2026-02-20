@@ -36,3 +36,20 @@
         KUBECONFIG: /etc/kubernetes/admin.conf
         GITHUB_TOKEN: "{{ github_token }}"
       when: flux_ns.rc != 0
+
+    - name: Wait for Gateway Service to exist
+      command: >
+        kubectl --kubeconfig /etc/kubernetes/admin.conf
+        get svc cilium-gateway-homelab -n default
+      register: gw_svc
+      retries: 30
+      delay: 10
+      until: gw_svc.rc == 0
+      changed_when: false
+
+    - name: Pin Gateway NodePorts
+      command: >
+        kubectl --kubeconfig /etc/kubernetes/admin.conf
+        patch svc cilium-gateway-homelab -n default --type=json
+        -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080},{"op":"replace","path":"/spec/ports/1/nodePort","value":30443}]'
+      changed_when: true
