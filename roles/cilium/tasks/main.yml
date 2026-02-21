@@ -12,6 +12,18 @@
   command: helm repo add cilium https://helm.cilium.io/
   changed_when: false
 
+- name: Install Gateway API CRDs
+  command: >
+    kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f
+    https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.3.0/config/crd/standard/gateway.networking.k8s.io_gatewayclasses.yaml
+    -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.3.0/config/crd/standard/gateway.networking.k8s.io_gateways.yaml
+    -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.3.0/config/crd/standard/gateway.networking.k8s.io_httproutes.yaml
+    -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.3.0/config/crd/standard/gateway.networking.k8s.io_referencegrants.yaml
+    -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.3.0/config/crd/experimental/gateway.networking.k8s.io_tlsroutes.yaml
+    -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.3.0/config/crd/experimental/gateway.networking.k8s.io_grpcroutes.yaml
+  register: gw_crds
+  changed_when: "'created' in gw_crds.stdout"
+
 - name: Check if Cilium is already installed
   command: helm status cilium -n kube-system
   environment:
@@ -23,6 +35,7 @@
 - name: Install Cilium via Helm
   command: >
     helm install cilium cilium/cilium
+    --version {{ cilium_version }}
     --namespace kube-system
     --set kubeProxyReplacement=true
     --set k8sServiceHost={{ kube_vip_ip }}
