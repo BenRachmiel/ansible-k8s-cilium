@@ -2,6 +2,7 @@
 - name: Bootstrap FluxCD
   hosts: cp_init
   become: true
+  tags: [vault, flux]
   tasks:
     - name: Get GitHub token from Vault
       set_fact:

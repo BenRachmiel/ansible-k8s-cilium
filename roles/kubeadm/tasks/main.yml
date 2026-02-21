@@ -27,6 +27,7 @@
     k8s_pki: "{{ lookup('community.hashi_vault.hashi_vault', 'secret/data/k8s/pki url=' ~ vault_addr ~ ' token=' ~ lookup('env', 'VAULT_TOKEN')) }}"
   no_log: true
   when: kubeadm_action | default('prereqs') == 'init'
+  tags: [vault]
 
 - name: Create PKI directories
   file:
@@ -37,6 +38,7 @@
     - /etc/kubernetes/pki
     - /etc/kubernetes/pki/etcd
   when: kubeadm_action | default('prereqs') == 'init'
+  tags: [vault]
 
 - name: Write PKI files from Vault
   copy:
@@ -56,6 +58,7 @@
     - { key: etcd_ca_key, dest: /etc/kubernetes/pki/etcd/ca.key, mode: "0600" }
   no_log: true
   when: kubeadm_action | default('prereqs') == 'init'
+  tags: [vault]
 
 # --- Init tasks (only on cp_init node) ---
 

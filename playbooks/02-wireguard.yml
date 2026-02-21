@@ -2,5 +2,6 @@
 - name: WireGuard setup
   hosts: k8s
   become: true
+  tags: [vault]
   roles:
     - wireguard
